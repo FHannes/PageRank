@@ -5,6 +5,7 @@
 #include <string.h>
 #include <time.h>
 
+static size_t matrix_size;
 static int count;
 static const double fudge_factor = 0.9;
 static double vector[4];
@@ -20,6 +21,7 @@ void ip_init( double **ip_buffer ) {
 //calculates the inner-product from local vectors
 double ip( double *x, double *y, double *ip_buffer, size_t np ) {
 	double alpha = 0.0;
+
 	for( size_t i = 0; i < np; ++i ){
 		//printf("In thread %d: value of x[%d] = %f and y=[%d] = %f \n",bsp_pid(),i,x[i],i,y[i]);
 		alpha += fudge_factor * x[ i ] * y[ i ];
@@ -45,25 +47,28 @@ void fill_matrix(size_t M, double matrix[M*M]) {
 }
 
 void spmd() {
-	const size_t M = 4;
 	double matrix[] = {0.2,0.2,0.5,0.0,0.2,0.2,0.0,0.0,0.2,0.2,0.0,0.0,0.2,0.2,0.0,1}; //test matrix
 	//double matrix[M*M];
 	//fill_matrix(M, matrix);
 
-	bsp_begin( bsp_nprocs() );
+	size_t procs = bsp_nprocs();
+	if (procs > matrix_size)
+		procs = matrix_size;
+
+	bsp_begin(procs);
 	double *ip_buffer, *x, *y;
 	size_t np;
 	ip_init( &ip_buffer );
-	np = M/bsp_nprocs();
+	np = matrix_size/bsp_nprocs();
 	//double x_array[] = {0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,0.10,0.11,0.12};
 	x = vector+(bsp_pid()*np);
 	y = matrix;
-	y = y + count*M + (bsp_pid()*np);
+	y = y + count*matrix_size + (bsp_pid()*np);
 	bsp_sync();
 
 	//printf("1e element(k=%d) in thread %d van y= %f\n",k,bsp_pid(),*y);
 	double alpha = ip( x, y, ip_buffer, np );
-	alpha+= 0.1*((double) 1/M); // this is now the vector-matrix product of pi(stationary vector and P (stochastic matrix) + E
+	alpha+= 0.1*((double) 1/matrix_size); // this is now the vector-matrix product of pi(stationary vector and P (stochastic matrix) + E
 	//printf("alpha thread %d = %f met k=%d\n",bsp_pid(),alpha,count);
 	
 	//printf("alpha van thread %d = %f.(k= %d)\n",bsp_pid(),alpha,k);
@@ -71,25 +76,27 @@ void spmd() {
 	vector_tmp[count] = alpha;
 }
 
-int main( int argc, char **argv ) {
+int main(int argc, char **argv) {
+	if (argc < 2) {
+		printf("Missing matrix size parameter\n");
+		return 0;
+	}
 
-	#define BILLION  1E9
-
-	const int size = 4;
+	matrix_size = atoi(argv[1]);
 	
-	for(unsigned int l = 0;l < size;l++)
-		vector[l] = (double) 1/size;
+	for(unsigned int l = 0;l < matrix_size;l++)
+		vector[l] = (double) 1/matrix_size;
 
 	clock_t start = clock();
 	//start
 	for(unsigned int w = 0;w<50;w++){ // Power method
 		count = 0;
-		for(int k = 0;k < size;k++){
+		for(int k = 0;k < matrix_size;k++){
 			bsp_init( &spmd, argc, argv );
 			spmd();
 			count++;
 		}
-		memcpy(&vector,&vector_tmp,8*size);
+		memcpy(&vector,&vector_tmp,8*matrix_size);
 	}
 	//end
 	clock_t end = clock();
@@ -98,7 +105,7 @@ int main( int argc, char **argv ) {
 	double elapsed = ((double) (end - start)) / CLOCKS_PER_SEC;
 	printf("Time taken: %lfs\n", elapsed);
 
-	for(unsigned int o = 0;o < size;o++)
+	for(unsigned int o = 0;o < matrix_size;o++)
 		printf("Stationary vector [%d] = %f\n",o,vector_tmp[o]);
 }
 

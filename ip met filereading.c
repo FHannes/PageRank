@@ -89,10 +89,8 @@ int main( int argc, char **argv ) {
     	int b=0;
    	double num;
 	double doubles[N*N];
-        while(fscanf(file, "%lf", &num) > 0) {
-        	doubles[b] = num;
-	        b++;
-    	}
+        while (fscanf(file, "%lf", &num) != 0)
+        	doubles[b++] = num;
 	
 	memcpy(&matrix,&doubles,8*N*N);
 	//printf("%lf %lf %lf %lf %lf\n",matrix[0],matrix[1],matrix[2],matrix[3],matrix[4]);
