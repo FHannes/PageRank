@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include <string.h>
 
 /**
  * Some basic math macros.
@@ -181,34 +182,40 @@ void pr_spmd() {
 }
 
 int main(int argc, char **argv) {
-	// Test data
-	matrix_size = 6;
-	int test_matrix[] = {
-		0, 1, 1, 0, 0, 0,
-		0, 0, 0, 0, 0, 0,
-		1, 1, 0, 0, 1, 0,
-		0, 0, 0, 0, 1, 1,
-		0, 0, 0, 1, 0, 1,
-		0, 0, 0, 1, 0, 0
-	};
+	if (argc < 2) {
+		printf("Missing matrix market path argument\n");
+		return 0;
+	}
+
+	// Open matrix market file
+	FILE *file = fopen(argv[1], "r");
+	if (file == NULL) {
+		printf("Unable to open specified matrix market file\n");
+		return 0;
+	}
+
+	// Read matrix size
+	if (fscanf(file, "%ld", &matrix_size) == 0) {
+		printf("Unable to read matrix size\n");
+		return 0;
+	}
 
 	// Setup constants and allocate memory for Google matrix
 	size_div = (double) 1 / matrix_size;
 	google_matrix = malloc(matrix_size * matrix_size * sizeof(double));
+	memset(google_matrix, 0, sizeof(google_matrix));
 	nonzero_vector = malloc(matrix_size * sizeof(size_t));
+	memset(nonzero_vector, 0, sizeof(nonzero_vector));
 
-	// Read link matrix and nonzero vector (to be replaced with matrix market)
-	for (int y = 0, idx = 0; y < matrix_size; y++) {
-		int count = 0;
-		for (int x = 0; x < matrix_size; x++) {
-			int value = test_matrix[idx++];
-			if (value != 0) {
-				count++;
-			}
-			google_matrix[x * matrix_size + y] = value;
-		}
-		nonzero_vector[y] = count;
+	// Read matrix and setup nonzero vector
+	int x, y;
+	while (fscanf(file, "%d", &y) > 0 && fscanf(file, "%d", &x) > 0) {
+		google_matrix[x * matrix_size + y] = 1;
+		nonzero_vector[y]++;
 	}
+
+	// Close matrix market file handle
+	fclose(file);
 
 	// Calculate row offsets for each thread
 	size_t nprocs = bsp_nprocs();
