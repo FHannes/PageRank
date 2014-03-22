@@ -107,6 +107,7 @@ void pr_spmd() {
 
 	// Register PageRank vector in BSP
 	bsp_push_reg(tmp_pagerank, matrix_size * sizeof(double));
+	bsp_sync();
 
 	for (unsigned int it = 0; it < ITERATIONS; it++) {
 		for (int col = offsets[bsp_pid()], pos = col * matrix_size;
@@ -117,7 +118,6 @@ void pr_spmd() {
 				pos++;
 			}
 			for (unsigned int pid = 0; pid < nprocs; pid++ ) {
-				printf("%d: %d, %f\n", pid, col, rank);
 				bsp_put(pid, &rank, tmp_pagerank, col * sizeof(double), sizeof(double));
 			}
 		}
@@ -129,7 +129,7 @@ void pr_spmd() {
 	}
 
 	bsp_pop_reg(tmp_pagerank);
-	//free(tmp_pagerank);
+	free(tmp_pagerank);
 
 	// End the BSP program
 	bsp_end();
