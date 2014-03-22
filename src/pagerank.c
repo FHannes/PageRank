@@ -6,6 +6,12 @@
 #include <time.h>
 
 /**
+ * Some basic math macros.
+ */
+#define MAX(a, b) (a > b ? a : b)
+#define ABS(a) (a < 0 ? -a : a)
+
+/**
  * Size of the link matrix
  */
 static size_t matrix_size;
@@ -44,9 +50,9 @@ static const double ALPHA = 0.9;
 static double *pagerank_vector;
 
 /**
- * The number of iterations of the power method.
+ * The accuracy desired for convergence.
  */
-static const double ITERATIONS = 50;
+static const double EPSILON = 0.00001;
 
 /**
  * The single-program multiple-data method for setting up the Google matrix. In this
@@ -119,20 +125,24 @@ void pr_spmd() {
 	bsp_begin(nprocs);
 
 	double *tmp_pagerank = malloc(matrix_size * sizeof(double));
+	double *max_diff = malloc(nprocs * sizeof(double));
 
 	// Setup the initial PageRank vector (all pages have equal rank)
 	for (int idx = 0; idx < matrix_size; idx++) {
 		tmp_pagerank[idx] = size_div;
 	}
 
-	// Register PageRank vector in BSP
+	// Register allocated memory in BSP
 	bsp_push_reg(tmp_pagerank, matrix_size * sizeof(double));
+	bsp_push_reg(max_diff, nprocs * sizeof(double));
 	bsp_sync();
 
 	// Power method iteration
-	for (unsigned int it = 0; it < ITERATIONS; it++) {
+	while (1) {
+		double cur_diff = 0;
 		for (int col = offsets[bsp_pid()], pos = col * matrix_size;
 				col < offsets[bsp_pid() + 1]; col++) {
+			// Calculate new PageRank values
 			double rank = 0;
 			for (int idx = 0; idx < matrix_size; idx++) {
 				rank += tmp_pagerank[idx] * google_matrix[pos++];
@@ -140,8 +150,21 @@ void pr_spmd() {
 			for (unsigned int pid = 0; pid < nprocs; pid++ ) {
 				bsp_put(pid, &rank, tmp_pagerank, col * sizeof(double), sizeof(double));
 			}
+			// Determine max difference between old and new rank to determine degree of convergence
+			cur_diff = MAX(cur_diff, ABS(tmp_pagerank[col] - rank));
+			for (unsigned int pid = 0; pid < nprocs; pid++) {
+				bsp_put(pid, &cur_diff, max_diff, bsp_pid() * sizeof(double), sizeof(double));
+			}
 		}
 		bsp_sync();
+		// Check if the desired convergence has been achieved
+		cur_diff = 0;
+		for (unsigned int pid = 0; pid < nprocs; pid++) {
+			cur_diff = MAX(cur_diff, max_diff[pid]);
+		}
+		if (cur_diff < EPSILON) {
+			break;
+		}
 	}
 
 	// Copy all columns to the result vector memory location
@@ -149,9 +172,11 @@ void pr_spmd() {
 		pagerank_vector[col] = tmp_pagerank[col];
 	}
 
-	// Free the local vectors
+	// Free the locally allocated memory
 	bsp_pop_reg(tmp_pagerank);
 	free(tmp_pagerank);
+	bsp_pop_reg(max_diff);
+	free(max_diff);
 
 	// End the BSP program
 	bsp_end();
