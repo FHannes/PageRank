@@ -3,12 +3,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include <string.h>
-
-/**
- * Some basic math macros.
- */
-#define MAX(a, b) (a > b ? a : b)
-#define ABS(a) (a < 0 ? -a : a)
+#include <math.h>
 
 /**
  * Size of the link matrix
@@ -49,9 +44,9 @@ static const double ALPHA = 0.9;
 static double *pagerank_vector;
 
 /**
- * The accuracy desired for convergence.
+ * The accuracy desired for convergence. Defaults to 5 digit precision.
  */
-static const double EPSILON = 0.00001;
+static double epsilon = 0.00001;
 
 /**
  * The single-program multiple-data method for setting up the Google matrix. In this
@@ -150,7 +145,7 @@ void pr_spmd() {
 				bsp_put(pid, &rank, tmp_pagerank, col * sizeof(double), sizeof(double));
 			}
 			// Determine max difference between old and new rank to determine degree of convergence
-			cur_diff = MAX(cur_diff, ABS(tmp_pagerank[col] - rank));
+			cur_diff = fmax(cur_diff, fabs(tmp_pagerank[col] - rank));
 			for (unsigned int pid = 0; pid < nprocs; pid++) {
 				bsp_put(pid, &cur_diff, max_diff, bsp_pid() * sizeof(double), sizeof(double));
 			}
@@ -159,9 +154,9 @@ void pr_spmd() {
 		// Check if the desired convergence has been achieved
 		cur_diff = 0;
 		for (unsigned int pid = 0; pid < nprocs; pid++) {
-			cur_diff = MAX(cur_diff, max_diff[pid]);
+			cur_diff = fmax(cur_diff, max_diff[pid]);
 		}
-		if (cur_diff < EPSILON) {
+		if (cur_diff < epsilon) {
 			break;
 		}
 	}
@@ -183,9 +178,17 @@ void pr_spmd() {
 
 int main(int argc, char **argv) {
 	if (argc < 2) {
-		printf("Missing matrix market path argument\n");
+		printf("Arguments:\n  %s PATH [EPSILON_PRECISION] [PRINT_PR]\n", argv[0]);
 		return 0;
 	}
+
+	// Get EPSILON digit accuracy
+	if (argc > 2) {
+		epsilon = 1 / (double) pow(10, atoi(argv[2]));
+	}
+
+	// If a 3rd parameter is specified, print the PageRank vector after calculating it
+	unsigned int print_pr = (argc > 3 ? 1 : 0);
 
 	// Open matrix market file
 	FILE *file = fopen(argv[1], "r");
@@ -199,6 +202,10 @@ int main(int argc, char **argv) {
 		printf("Unable to read matrix size\n");
 		return 0;
 	}
+	printf("Hyperlink matrix size: %ld\n", matrix_size);
+	double memory_size = matrix_size * matrix_size * sizeof(double);
+	memory_size /= 1048576; // Convert B to MiB
+	printf("Hyperlink matrix memory size: %fMiB\n", memory_size);
 
 	// Setup constants and allocate memory for Google matrix
 	size_div = (double) 1 / matrix_size;
@@ -254,15 +261,17 @@ int main(int argc, char **argv) {
 	printf("Google PageRank calculated in %lfs\n", elapsed);
 
 	// Write the PageRank vector
-	printf("PageRank vector:\n(%f", pagerank_vector[0]);
-	for (int idx = 1; idx < matrix_size; idx++) {
-		printf(",");
-		if (idx % 5 == 0) {
-			printf("\n");
+	if (print_pr != 0) {
+		printf("PageRank vector:\n(%.10f", pagerank_vector[0]);
+		for (int idx = 1; idx < matrix_size; idx++) {
+			printf(",");
+			if (idx % 5 == 0) {
+				printf("\n");
+			}
+			printf(" %.10f", pagerank_vector[idx]);
 		}
-		printf(" %f", pagerank_vector[idx]);
+		printf(")\n");
 	}
-	printf(")\n");
 
 	// Free memory
 	free(google_matrix);
