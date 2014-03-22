@@ -5,13 +5,19 @@
 #include <string.h>
 #include <time.h>
 
-// Size of the link matrix
+/**
+ * Size of the link matrix
+ */
 static size_t matrix_size;
 
-// 1 / matrix_size, used to avoid recalculating this static value
+/**
+ * 1 / matrix_size, used to avoid recalculating this static value.
+ */
 static double size_div;
 
-// A vector containing the number of non-zero elements for each row
+/**
+ * A vector containing the number of non-zero elements for each row.
+ */
 static size_t *nonzero_vector;
 
 /**
@@ -21,7 +27,9 @@ static size_t *nonzero_vector;
  */
 static double *google_matrix;
 
-// Array offsets for matrix_size over nprocs processors
+/**
+ * Array offsets for matrix_size over nprocs processors.
+ */
 static size_t *offsets;
 
 /**
@@ -40,6 +48,12 @@ static double *pagerank_vector;
  */
 static const double ITERATIONS = 50;
 
+/**
+ * The single-program multiple-data method for setting up the Google matrix. In this
+ * method BSP is used as a simple multi-threaded environment without data
+ * synchronization. Each thread is assigned a number of columns of the matrix to work
+ * on, as a result no race conditions can exist.
+ */
 void gm_spmd() {
 	size_t nprocs = bsp_nprocs();
 
@@ -92,6 +106,12 @@ void gm_spmd() {
 	bsp_end();
 }
 
+/**
+ * The single-program multiple-data method which calculates the PageRank vector by
+ * using the power method. Each thread processes the inner-product calculations for
+ * a number of columns. After an iteration is complete, the new partial PageRank
+ * vectors are synced to all threads for the next iteration.
+ */
 void pr_spmd() {
 	size_t nprocs = bsp_nprocs();
 
@@ -109,13 +129,13 @@ void pr_spmd() {
 	bsp_push_reg(tmp_pagerank, matrix_size * sizeof(double));
 	bsp_sync();
 
+	// Power method iteration
 	for (unsigned int it = 0; it < ITERATIONS; it++) {
 		for (int col = offsets[bsp_pid()], pos = col * matrix_size;
 				col < offsets[bsp_pid() + 1]; col++) {
 			double rank = 0;
 			for (int idx = 0; idx < matrix_size; idx++) {
-				rank += tmp_pagerank[idx] * google_matrix[pos];
-				pos++;
+				rank += tmp_pagerank[idx] * google_matrix[pos++];
 			}
 			for (unsigned int pid = 0; pid < nprocs; pid++ ) {
 				bsp_put(pid, &rank, tmp_pagerank, col * sizeof(double), sizeof(double));
@@ -124,10 +144,12 @@ void pr_spmd() {
 		bsp_sync();
 	}
 
+	// Copy all columns to the result vector memory location
 	for (int col = offsets[bsp_pid()]; col < offsets[bsp_pid() + 1]; col++) {
 		pagerank_vector[col] = tmp_pagerank[col];
 	}
 
+	// Free the local vectors
 	bsp_pop_reg(tmp_pagerank);
 	free(tmp_pagerank);
 
