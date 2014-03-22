@@ -264,6 +264,8 @@ int main(int argc, char **argv) {
 	elapsed = (end.tv_sec - start.tv_sec) * 1000 +
 			((double) end.tv_usec - start.tv_usec) / 1000;
 	printf("Google PageRank calculated in %fms\n", elapsed);
+	printf("Elapsed time per element: %fµs\n",
+			(elapsed * 1000) / (matrix_size * matrix_size));
 
 	// Write the PageRank vector
 	if (print_pr != 0) {
