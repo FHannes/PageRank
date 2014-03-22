@@ -1,7 +1,7 @@
 #include <mcbsp.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
+#include <sys/time.h>
 #include <string.h>
 #include <math.h>
 
@@ -234,15 +234,19 @@ int main(int argc, char **argv) {
 		offsets[idx + 1] = offsets[idx] + rows_min + (idx < rows_rem ? 1 : 0);
 	}
 
+	// Variables to measure elapsed time
+	struct timeval start, end;
+
 	// Start Google matrix BSP program
-	clock_t start = clock();
+	gettimeofday(&start, NULL);
 	bsp_init(&gm_spmd, argc, argv);
 	gm_spmd();
-	clock_t end = clock();
+	gettimeofday(&end, NULL);
 
 	// Write time elapsed to build Google matrix
-	double elapsed = ((double) (end - start)) / CLOCKS_PER_SEC;
-	printf("Google matrix built in %lfs\n", elapsed);
+	double elapsed = (end.tv_sec - start.tv_sec) * 1000 +
+			((double) end.tv_usec - start.tv_usec) / 1000;
+	printf("Google matrix built in %fms\n", elapsed);
 
 	// Free nonzero_vector which is no longer needed
 	free(nonzero_vector);
@@ -251,14 +255,15 @@ int main(int argc, char **argv) {
 	pagerank_vector = malloc(matrix_size * sizeof(double));
 
 	// Start PageRank BSP
-	start = clock();
+	gettimeofday(&start, NULL);
 	bsp_init(&pr_spmd, argc, argv);
 	pr_spmd();
-	end = clock();
+	gettimeofday(&end, NULL);
 
 	// Write time elapsed to calculate the PageRank vector
-	elapsed = ((double) (end - start)) / CLOCKS_PER_SEC;
-	printf("Google PageRank calculated in %lfs\n", elapsed);
+	elapsed = (end.tv_sec - start.tv_sec) * 1000 +
+			((double) end.tv_usec - start.tv_usec) / 1000;
+	printf("Google PageRank calculated in %fms\n", elapsed);
 
 	// Write the PageRank vector
 	if (print_pr != 0) {
