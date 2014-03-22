@@ -230,6 +230,9 @@ int main(int argc, char **argv) {
 	double elapsed = ((double) (end - start)) / CLOCKS_PER_SEC;
 	printf("Google matrix built in %lfs\n", elapsed);
 
+	// Free nonzero_vector which is no longer needed
+	free(nonzero_vector);
+
 	// Allocate memory to store the PageRank vector
 	pagerank_vector = malloc(matrix_size * sizeof(double));
 
@@ -253,4 +256,8 @@ int main(int argc, char **argv) {
 		printf(" %f", pagerank_vector[idx]);
 	}
 	printf(")\n");
+
+	// Free memory
+	free(google_matrix);
+	free(pagerank_vector);
 }
