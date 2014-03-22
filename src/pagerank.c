@@ -198,10 +198,11 @@ int main(int argc, char **argv) {
 	// Write the PageRank vector
 	printf("PageRank vector:\n(%f", pagerank_vector[0]);
 	for (int idx = 1; idx < matrix_size; idx++) {
+		printf(",");
 		if (idx % 5 == 0) {
 			printf("\n");
 		}
-		printf(", %f", pagerank_vector[idx]);
+		printf(" %f", pagerank_vector[idx]);
 	}
 	printf(")\n");
 }
