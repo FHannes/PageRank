@@ -181,43 +181,43 @@ void pr_spmd() {
 }
 
 int main(int argc, char **argv) {
-	size_t nprocs = bsp_nprocs();
-
-	// Setup
+	// Test data
 	matrix_size = 6;
+	int test_matrix[] = {
+		0, 1, 1, 0, 0, 0,
+		0, 0, 0, 0, 0, 0,
+		1, 1, 0, 0, 1, 0,
+		0, 0, 0, 0, 1, 1,
+		0, 0, 0, 1, 0, 1,
+		0, 0, 0, 1, 0, 0
+	};
+
+	// Setup constants and allocate memory for Google matrix
 	size_div = (double) 1 / matrix_size;
 	google_matrix = malloc(matrix_size * matrix_size * sizeof(double));
 	nonzero_vector = malloc(matrix_size * sizeof(size_t));
-	offsets = malloc((nprocs + 1) * sizeof(size_t));
-	pagerank_vector = malloc(matrix_size * sizeof(double));
+
+	// Read link matrix and nonzero vector (to be replaced with matrix market)
+	for (int y = 0, idx = 0; y < matrix_size; y++) {
+		int count = 0;
+		for (int x = 0; x < matrix_size; x++) {
+			int value = test_matrix[idx++];
+			if (value != 0) {
+				count++;
+			}
+			google_matrix[x * matrix_size + y] = value;
+		}
+		nonzero_vector[y] = count;
+	}
 
 	// Calculate row offsets for each thread
+	size_t nprocs = bsp_nprocs();
+	offsets = malloc((nprocs + 1) * sizeof(size_t));
 	size_t rows_min = matrix_size / nprocs;
 	size_t rows_rem = matrix_size % nprocs;
 	offsets[0] = 0;
 	for (int idx = 0; idx < nprocs; idx++) {
 		offsets[idx + 1] = offsets[idx] + rows_min + (idx < rows_rem ? 1 : 0);
-	}
-
-	// Temporary test matrix (transposed)
-	double test_matrix[] = {
-		0, 0, 1, 0, 0, 0,
-		1, 0, 1, 0, 0, 0,
-		1, 0, 0, 0, 0, 0,
-		0, 0, 0, 0, 1, 1,
-		0, 0, 1, 1, 0, 0,
-		0, 0, 0, 1, 1, 0
-	};
-	size_t test_nonzero[] = {
-		2, 0, 3, 2, 2, 1
-	};
-
-	// Read link matrix and nonzero vector (to be replaced with matrix market)
-	for (int idx = 0; idx < matrix_size * matrix_size; idx++) {
-		google_matrix[idx] = test_matrix[idx];
-	}
-	for (int idx = 0; idx < matrix_size; idx++) {
-		nonzero_vector[idx] = test_nonzero[idx];
 	}
 
 	// Start Google matrix BSP program
@@ -229,6 +229,9 @@ int main(int argc, char **argv) {
 	// Write time elapsed to build Google matrix
 	double elapsed = ((double) (end - start)) / CLOCKS_PER_SEC;
 	printf("Google matrix built in %lfs\n", elapsed);
+
+	// Allocate memory to store the PageRank vector
+	pagerank_vector = malloc(matrix_size * sizeof(double));
 
 	// Start PageRank BSP
 	start = clock();
