@@ -6,6 +6,11 @@
 #include <math.h>
 
 /**
+ * The number of threads that will be used.
+ */
+static size_t nprocs;
+
+/**
  * Size of the link matrix
  */
 static size_t matrix_size;
@@ -55,8 +60,6 @@ static double epsilon = 0.00001;
  * on, as a result no race conditions can exist.
  */
 void gm_spmd() {
-	size_t nprocs = bsp_nprocs();
-
 	// Start BSP program (Simple threaded program, no race conditions)
 	bsp_begin(nprocs);
 
@@ -113,8 +116,6 @@ void gm_spmd() {
  * vectors are synced to all threads for the next iteration.
  */
 void pr_spmd() {
-	size_t nprocs = bsp_nprocs();
-
 	// Start BSP program
 	bsp_begin(nprocs);
 
@@ -141,7 +142,7 @@ void pr_spmd() {
 			for (int idx = 0; idx < matrix_size; idx++) {
 				rank += tmp_pagerank[idx] * google_matrix[pos++];
 			}
-			for (unsigned int pid = 0; pid < nprocs; pid++ ) {
+			for (unsigned int pid = 0; pid < nprocs; pid++) {
 				bsp_put(pid, &rank, tmp_pagerank, col * sizeof(double), sizeof(double));
 			}
 			// Determine max difference between old and new rank to determine degree of convergence
@@ -190,6 +191,8 @@ int main(int argc, char **argv) {
 	// If a 3rd parameter is specified, print the PageRank vector after calculating it
 	unsigned int print_pr = (argc > 3 ? 1 : 0);
 
+	nprocs = bsp_nprocs();
+
 	// Open matrix market file
 	FILE *file = fopen(argv[1], "r");
 	if (file == NULL) {
@@ -225,7 +228,6 @@ int main(int argc, char **argv) {
 	fclose(file);
 
 	// Calculate row offsets for each thread
-	size_t nprocs = bsp_nprocs();
 	offsets = malloc((nprocs + 1) * sizeof(size_t));
 	size_t rows_min = matrix_size / nprocs;
 	size_t rows_rem = matrix_size % nprocs;
@@ -264,7 +266,7 @@ int main(int argc, char **argv) {
 	elapsed = (end.tv_sec - start.tv_sec) * 1000 +
 			((double) end.tv_usec - start.tv_usec) / 1000;
 	printf("Google PageRank calculated in %fms\n", elapsed);
-	printf("Elapsed time per element: %fµs\n",
+	printf("Elapsed time per element: %fÂµs\n",
 			(elapsed * 1000) / (matrix_size * matrix_size));
 
 	// Write the PageRank vector
