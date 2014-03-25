@@ -4,6 +4,7 @@
 #include <sys/time.h>
 #include <string.h>
 #include <math.h>
+#include <getopt.h>
 
 /**
  * The number of threads that will be used.
@@ -178,23 +179,49 @@ void pr_spmd() {
 }
 
 int main(int argc, char **argv) {
-	if (argc < 2) {
-		printf("Arguments:\n  %s PATH [EPSILON_PRECISION] [PRINT_PR]\n", argv[0]);
-		return 0;
-	}
-
-	// Get EPSILON digit accuracy
-	if (argc > 2) {
-		epsilon = 1 / (double) pow(10, atoi(argv[2]));
-	}
-
-	// If a 3rd parameter is specified, print the PageRank vector after calculating it
-	unsigned int print_pr = (argc > 3 ? 1 : 0);
+	unsigned int print_pr_flag = 0;
+	char* path;
 
 	nprocs = bsp_nprocs();
 
+	struct option long_options[] = {
+			{"output", no_argument, &print_pr_flag, 1},
+			{"epsilon", required_argument, NULL, 'e'},
+			{"nprocs", required_argument, NULL, 'n'},
+			{"path", required_argument, NULL, 'p'},
+			{"help", no_argument, NULL, 'h'},
+			{NULL, 0, NULL, 0}
+	};
+
+	// Read arguments
+	int opt, option_index = 0;
+	while ((opt = getopt_long(argc, argv, ":e:n:p:h", long_options, NULL)) != -1) {
+		switch (opt) {
+		case 0:
+			break;
+		case 'e':
+			epsilon = 1 / (double) pow(10, atoi(optarg));
+			break;
+		case 'n':
+			nprocs = atoi(optarg);
+			if (nprocs <= 0 || nprocs > bsp_nprocs()) {
+				nprocs = bsp_nprocs();
+				printf("Invalid process count entered, switching to maximum available: %ld", nprocs);
+				return 0;
+			}
+			break;
+		case 'p':
+			path = optarg;
+			break;
+		case 'h':
+		default:
+			fprintf(stderr, "Usage: %s -p path [-e epsilon_precision] [-n nprocs] [--output]\n", argv[0]);
+			exit(EXIT_FAILURE);
+		}
+	}
+
 	// Open matrix market file
-	FILE *file = fopen(argv[1], "r");
+	FILE *file = fopen(path, "r");
 	if (file == NULL) {
 		printf("Unable to open specified matrix market file\n");
 		return 0;
@@ -236,6 +263,9 @@ int main(int argc, char **argv) {
 		offsets[idx + 1] = offsets[idx] + rows_min + (idx < rows_rem ? 1 : 0);
 	}
 
+	// Print out the number of processes in use
+	printf("Process count (#threads): %ld\n", nprocs);
+
 	// Variables to measure elapsed time
 	struct timeval start, end;
 
@@ -270,7 +300,7 @@ int main(int argc, char **argv) {
 			(elapsed * 1000) / (matrix_size * matrix_size));
 
 	// Write the PageRank vector
-	if (print_pr != 0) {
+	if (print_pr_flag != 0) {
 		printf("PageRank vector:\n(%.10f", pagerank_vector[0]);
 		for (int idx = 1; idx < matrix_size; idx++) {
 			printf(",");
