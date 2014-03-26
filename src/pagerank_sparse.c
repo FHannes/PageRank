@@ -4,12 +4,12 @@
 #include <sys/time.h>
 #include <string.h>
 #include <math.h>
-#include <getopt.h>
+#include <utils.h>
 
 /**
- * The number of threads that will be used.
+ * The program arguments.
  */
-static size_t nprocs;
+static struct pr_params params;
 
 /**
  * Size of the link matrix
@@ -87,10 +87,10 @@ static double epsilon = 0.00001;
  */
 void pr_spmd() {
 	// Start BSP program
-	bsp_begin(nprocs);
+	bsp_begin(params.nprocs);
 
 	double *tmp_pagerank = malloc(matrix_size * sizeof(double));
-	double *max_diff = malloc(nprocs * sizeof(double));
+	double *max_diff = malloc(params.nprocs * sizeof(double));
 
 	// Setup the initial PageRank vector (all pages have equal rank)
 	for (int idx = 0; idx < matrix_size; idx++) {
@@ -99,7 +99,7 @@ void pr_spmd() {
 
 	// Register allocated memory in BSP
 	bsp_push_reg(tmp_pagerank, matrix_size * sizeof(double));
-	bsp_push_reg(max_diff, nprocs * sizeof(double));
+	bsp_push_reg(max_diff, params.nprocs * sizeof(double));
 	bsp_sync();
 
 	// Power method iteration
@@ -118,19 +118,19 @@ void pr_spmd() {
 				}
 				rank += tmp_pagerank[idx] * google_matrix_entry;
 			}
-			for (unsigned int pid = 0; pid < nprocs; pid++) {
+			for (unsigned int pid = 0; pid < params.nprocs; pid++) {
 				bsp_put(pid, &rank, tmp_pagerank, col * sizeof(double), sizeof(double));
 			}
 			// Determine max difference between old and new rank to determine degree of convergence
 			cur_diff = fmax(cur_diff, fabs(tmp_pagerank[col] - rank));
-			for (unsigned int pid = 0; pid < nprocs; pid++) {
+			for (unsigned int pid = 0; pid < params.nprocs; pid++) {
 				bsp_put(pid, &cur_diff, max_diff, bsp_pid() * sizeof(double), sizeof(double));
 			}
 		}
 		bsp_sync();
 		// Check if the desired convergence has been achieved
 		cur_diff = 0;
-		for (unsigned int pid = 0; pid < nprocs; pid++) {
+		for (unsigned int pid = 0; pid < params.nprocs; pid++) {
 			cur_diff = fmax(cur_diff, max_diff[pid]);
 		}
 		if (cur_diff < epsilon) {
@@ -154,49 +154,11 @@ void pr_spmd() {
 }
 
 int main(int argc, char **argv) {
-	unsigned int print_pr_flag = 0;
-	char* path;
-
-	nprocs = bsp_nprocs();
-
-	struct option long_options[] = {
-			{"output", no_argument, &print_pr_flag, 1},
-			{"epsilon", required_argument, NULL, 'e'},
-			{"nprocs", required_argument, NULL, 'n'},
-			{"path", required_argument, NULL, 'p'},
-			{"help", no_argument, NULL, 'h'},
-			{NULL, 0, NULL, 0}
-	};
-
-	// Read arguments
-	int opt, option_index = 0;
-	while ((opt = getopt_long(argc, argv, ":en:p:h", long_options, NULL)) != -1) {
-		switch (opt) {
-		case 0:
-			break;
-		case 'e':
-			epsilon = 1 / (double) pow(10, atoi(optarg));
-			break;
-		case 'n':
-			nprocs = atoi(optarg);
-			if (nprocs <= 0 || nprocs > bsp_nprocs()) {
-				nprocs = bsp_nprocs();
-				printf("Invalid process count entered, switching to maximum available: %ld", nprocs);
-				return 0;
-			}
-			break;
-		case 'p':
-			path = optarg;
-			break;
-		case 'h':
-		default:
-			fprintf(stderr, "Usage: %s -p path [-e epsilon_precision] [-n nprocs] [--output]\n", argv[0]);
-			exit(EXIT_FAILURE);
-		}
-	}
+	// Parse commandline arguments
+	parse_arguments(argc, argv, &params);
 
 	// Open matrix market file
-	FILE *file = fopen(path, "r");
+	FILE *file = fopen(params.path, "r");
 	if (file == NULL) {
 		printf("Unable to open specified matrix market file\n");
 		return 0;
@@ -207,20 +169,27 @@ int main(int argc, char **argv) {
 		printf("Unable to read matrix size\n");
 		return 0;
 	}
+	if (params.links > 0) {
+		// If a different matrix size was requested, use it if it's not larger than
+		// the available size in the dataset.
+		if (params.links < matrix_size) {
+			matrix_size = params.links;
+		}
+	}
 	size_div = (double) 1 / matrix_size;
 	printf("Hyperlink matrix size: %ld\n", matrix_size);
 
 	// Calculate row offsets for each thread
-	offsets = malloc((nprocs + 1) * sizeof(size_t));
-	size_t rows_min = matrix_size / nprocs;
-	size_t rows_rem = matrix_size % nprocs;
+	offsets = malloc((params.nprocs + 1) * sizeof(size_t));
+	size_t rows_min = matrix_size / params.nprocs;
+	size_t rows_rem = matrix_size % params.nprocs;
 	offsets[0] = 0;
-	for (int idx = 0; idx < nprocs; idx++) {
+	for (int idx = 0; idx < params.nprocs; idx++) {
 		offsets[idx + 1] = offsets[idx] + rows_min + (idx < rows_rem ? 1 : 0);
 	}
 
 	// Initiate the sparse link matrix linked list
-	sparse_link_matrix = malloc(nprocs * sizeof(link_node*));
+	sparse_link_matrix = malloc(params.nprocs * sizeof(link_node*));
 
 	// Allocate memory for temporary storage of outlink count per url
 	size_t *nonzero_vector = malloc(matrix_size * sizeof(size_t));
@@ -230,6 +199,9 @@ int main(int argc, char **argv) {
 	unsigned int x, y, prev_x = 0, prev_y = 0, idx = 0;
 	link_node *active_node;
 	while (fscanf(file, "%d", &y) > 0 && fscanf(file, "%d", &x) > 0) {
+		if (x >= matrix_size || y >= matrix_size) {
+			continue;
+		}
 		if (prev_x * matrix_size + prev_y > x * matrix_size + y) {
 			printf("Exception: MatrixMarket has to be sorted by column, not by row");
 			return 0;
@@ -275,7 +247,7 @@ int main(int argc, char **argv) {
 	free(nonzero_vector);
 
 	// Print out the number of processes in use
-	printf("Process count (#threads): %ld\n", nprocs);
+	printf("Process count (#threads): %ld\n", params.nprocs);
 
 	// Variables to measure elapsed time
 	struct timeval start, end;
@@ -283,21 +255,51 @@ int main(int argc, char **argv) {
 	// Allocate memory to store the PageRank vector
 	pagerank_vector = malloc(matrix_size * sizeof(double));
 
-	// Start PageRank BSP
-	gettimeofday(&start, NULL);
-	bsp_init(&pr_spmd, argc, argv);
-	pr_spmd();
-	gettimeofday(&end, NULL);
+	// Allocate memory to store the time measuremetns for the execution of the algorithm
+	double *measure_array = malloc(params.measurements * sizeof(double));
 
-	// Write time elapsed to calculate the PageRank vector
-	double elapsed = (end.tv_sec - start.tv_sec) * 1000 +
-			((double) end.tv_usec - start.tv_usec) / 1000;
-	printf("Google PageRank calculated in %fms\n", elapsed);
-	printf("Elapsed time per element: %fµs\n",
-			(elapsed * 1000) / (matrix_size * matrix_size));
+	for (unsigned int mm = 0; mm < params.measurements; mm++) {
+		// Start PageRank BSP
+		gettimeofday(&start, NULL);
+		for (unsigned int it = 0; it < params.iterations; it++) {
+			bsp_init(&pr_spmd, argc, argv);
+			pr_spmd();
+		}
+		gettimeofday(&end, NULL);
+
+		// Store time elapsed to calculate the PageRank vector
+		measure_array[mm] = ((end.tv_sec - start.tv_sec) * 1000 +
+				((double) end.tv_usec - start.tv_usec) / 1000) / params.iterations;
+	}
+
+	double measurements_mean = 0;
+	for (unsigned int mm = 0; mm < params.measurements; mm++) {
+		measurements_mean += measure_array[mm];
+	}
+	measurements_mean /= params.measurements;
+	printf("Google PageRank calculated in avg %fms over %u measurements of %u iterations\n",
+			measurements_mean, params.measurements, params.iterations);
+	printf("Avg elapsed time per element: %fµs\n",
+			(measurements_mean * 1000) / (matrix_size * matrix_size));
+
+	// Write the measurements array
+	if (params.print_measurements != 0) {
+		printf("Measurements:\n(%f", measure_array[0]);
+		for (int idx = 1; idx < params.measurements; idx++) {
+			printf(",");
+			if (idx % 5 == 0) {
+				printf("\n");
+			}
+			printf(" %f", measure_array[idx]);
+		}
+		printf(")\n");
+	}
+
+	// Free the array that holds all of the time measurements
+	free(measure_array);
 
 	// Write the PageRank vector
-	if (print_pr_flag != 0) {
+	if (params.print_vector != 0) {
 		printf("PageRank vector:\n(%.10f", pagerank_vector[0]);
 		for (int idx = 1; idx < matrix_size; idx++) {
 			printf(",");
@@ -310,7 +312,7 @@ int main(int argc, char **argv) {
 	}
 
 	// Free memory
-	for (int idx = 0; idx < nprocs; idx++) {
+	for (int idx = 0; idx < params.nprocs; idx++) {
 		link_node *node, *node_next = sparse_link_matrix[idx];
 		while ((node = node_next) != NULL) {
 			node_next = node->next;
