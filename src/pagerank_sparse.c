@@ -255,7 +255,7 @@ int main(int argc, char **argv) {
 	// Allocate memory to store the PageRank vector
 	pagerank_vector = malloc(matrix_size * sizeof(double));
 
-	// Allocate memory to store the time measuremetns for the execution of the algorithm
+	// Allocate memory to store the time measurements for the execution of the algorithm
 	double *measure_array = malloc(params.measurements * sizeof(double));
 
 	for (unsigned int mm = 0; mm < params.measurements; mm++) {
